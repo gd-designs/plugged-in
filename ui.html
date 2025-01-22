@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Plugin UI</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        font-size: 14px;
+        color: #364662;
+        background-color: #fbf5f9;
+        padding: 1rem;
+      }
+
+      button {
+        padding: 10px 20px;
+        font-size: 14px;
+        cursor: pointer;
+        background-color: #d0297a;
+        color: #fff;
+        border: none;
+        border-radius: 5px;
+        margin: 10px;
+      }
+
+      button:disabled {
+        background-color: #ccc;
+        cursor: not-allowed;
+      }
+
+      #editor {
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        height: 500px;
+        overflow-y: auto;
+      }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor/min/vs/loader.js"></script>
+  </head>
+  <body>
+    <h2>KMH Plugin</h2>
+    <p>
+      This plugin will generate HTML from the selected frame. It will also
+      generate CSS styles for the frame and its children.
+    </p>
+    <p>Fonts Used: <span id="font-name">Process frame to get fonts...</span></p>
+    <div id="editor"></div>
+    <button id="process-frame">Generate HTML</button>
+    <button id="copy">Copy HTML</button>
+    <button id="cancel">Cancel</button>
+
+    <script>
+      let editor;
+
+      const cancelButton = document.getElementById("cancel");
+      const copyButton = document.getElementById("copy");
+      const processFrameButton = document.getElementById("process-frame");
+
+      require.config({
+        paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor/min/vs" },
+      });
+
+      require(["vs/editor/editor.main"], function () {
+        editor = monaco.editor.create(document.getElementById("editor"), {
+          value: [
+            "<!DOCTYPE html>",
+            "<html>",
+            "  <head>",
+            "    <title>Email Template</title>",
+            "    <meta http-equiv='Content-Type' content='text/html; charset=utf-8'>",
+            "    <meta name='viewport' content='width=device-width, initial-scale=1.0'>",
+            "    <style>",
+            "      @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap');",
+            "      img {",
+            "        display: block;",
+            "        max-width: 100%;",
+            "        height: auto;",
+            "      }",
+            "    </style>",
+            "  </head>",
+            "  <body>",
+            "    <table border='0' cellpadding='0' cellspacing='0' width='100%' style='font-family: Montserrat, sans-serif; font-optical-sizing: auto; max-width: 600px; margin: 0 auto; color: #141414; background-color: #ffffff;'>",
+            "      <tr>",
+            "        <td align='center'>",
+            "          <!-- Content Goes Here -->",
+            "        </td>",
+            "      </tr>",
+            "    </table>",
+            "  </body>",
+            "</html>",
+          ].join("\n"),
+          language: "html",
+          theme: "vs", // Default theme
+          autoIndent: true,
+          formatOnPaste: true,
+          formatOnType: true,
+        });
+
+        // Handle incoming messages from the plugin
+        window.onmessage = (event) => {
+          if (event.data && event.data.pluginMessage) {
+            const message = event.data.pluginMessage;
+            console.log("Received message:", message); // Log the received message
+
+            if (message.type === "update-highlighted-content") {
+              console.log("Updating editor content with new HTML...");
+
+              // Retrieve the current value of the editor
+              const currentValue = editor.getValue();
+
+              // Replace the placeholder `<!-- Content Goes Here -->` with the new HTML
+              const updatedValue = currentValue.replace(
+                "<!-- Content Goes Here -->",
+                message.content
+              );
+
+              // Update the Monaco Editor with the new value
+              editor.setValue(updatedValue);
+
+              // Trigger the format action after setting the content
+              editor
+                .getAction("editor.action.formatDocument")
+                .run()
+                .then(() => {
+                  console.log("Code formatted after update.");
+                });
+            } else if (message.type === "error") {
+              alert(message.message);
+            } else if (message.type === "fonts-used") {
+              console.log("Fonts to display:", message.fonts); // Log the fonts list
+
+              const fontDisplay = document.getElementById("font-name");
+              if (fontDisplay) {
+                fontDisplay.textContent = message.fonts;
+                console.log("Updated font-name text content."); // Confirm update
+              }
+            } else {
+              console.warn("Unexpected message type:", message.type);
+            }
+          } else {
+            console.warn("Invalid message received:", event.data);
+          }
+        };
+      });
+
+      if (copyButton) {
+        copyButton.onclick = () => {
+          const code = editor.getValue(); // Get the editor content
+
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            // Use modern Clipboard API if available
+            navigator.clipboard.writeText(code).then(
+              () => {
+                console.log("Code copied to clipboard:", code);
+                alert("Code has been copied to the clipboard!");
+              },
+              (err) => {
+                console.error("Failed to copy text to clipboard: ", err);
+                alert("Failed to copy code to the clipboard.");
+              }
+            );
+          } else {
+            // Fallback to execCommand('copy') for older environments
+            const textArea = document.createElement("textarea");
+            textArea.value = code;
+            textArea.style.position = "fixed"; // Avoid scrolling to the textarea
+            textArea.style.left = "-9999px"; // Move it off-screen
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+              const successful = document.execCommand("copy");
+              if (successful) {
+                console.log("Code copied to clipboard:", code);
+                alert("Code has been copied to the clipboard!");
+              } else {
+                throw new Error("Copy command was unsuccessful");
+              }
+            } catch (err) {
+              console.error("Fallback: Oops, unable to copy", err);
+              alert("Failed to copy code to the clipboard.");
+            }
+            document.body.removeChild(textArea); // Clean up the temporary textarea
+          }
+        };
+      }
+
+      if (cancelButton) {
+        cancelButton.onclick = () => {
+          console.log("Cancel button clicked.");
+          parent.postMessage({ pluginMessage: { type: "cancel" } }, "*");
+        };
+      }
+
+      if (processFrameButton) {
+        processFrameButton.onclick = () => {
+          console.log("Process Frame button clicked.");
+          parent.postMessage({ pluginMessage: { type: "process-frame" } }, "*");
+        };
+      }
+    </script>
+  </body>
+</html>
